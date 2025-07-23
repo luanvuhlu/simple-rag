@@ -21,6 +21,22 @@ A complete RAG (Retrieval-Augmented Generation) application built with Spring Bo
 - **Advanced RAG Techniques**: Hybrid search, re-ranking, and context optimization
 - **Authentication & Authorization**: User management and secure access control
 
+## 📸 Screenshots & Demo
+
+### Main Interface
+The application provides a clean, intuitive interface for document upload and AI-powered querying:
+
+![Main Interface](docs/images/screenshots/main-interface.png)
+
+**Key Features Shown:**
+- 📊 **Dashboard Statistics**: Document count, processing status, and query history
+- 💬 **Query Interface**: Natural language question input with AI responses
+- 📁 **Document Upload**: Drag & drop file upload with format support
+- 📋 **Recent Activity**: Quick access to uploaded documents and query history
+- 🎨 **Markdown Rendering**: Formatted AI responses with proper styling
+
+*The interface demonstrates the RAG system in action with sample queries about AI agents, showing the system's ability to provide contextual, well-formatted responses based on uploaded documentation.*
+
 ## 🛠 Technology Stack
 
 - **Backend**: Spring Boot 3.x, Java 17+
