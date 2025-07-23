@@ -216,7 +216,7 @@ When Spring AI becomes available, the application is ready for integration:
 ollama serve
 
 # Pull required models
-ollama pull llama3.1
+ollama pull qwen2.5:7b
 ollama pull nomic-embed-text
 ```
 
