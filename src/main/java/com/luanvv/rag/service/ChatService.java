@@ -136,8 +136,11 @@ public class ChatService {
                     .call()
                     .content();
             
-            logger.debug("Generated response with {} characters", response.length());
-            return response;
+            // Clean the response to remove thinking tags
+            String cleanedResponse = cleanThinkingTags(response);
+            
+            logger.debug("Generated response with {} characters", cleanedResponse.length());
+            return cleanedResponse;
             
         } catch (Exception e) {
             logger.error("Error generating chat response: {}", e.getMessage(), e);
@@ -164,8 +167,11 @@ public class ChatService {
                     .call()
                     .content();
             
-            logger.debug("Generated response with {} characters", response.length());
-            return response;
+            // Clean the response to remove thinking tags
+            String cleanedResponse = cleanThinkingTags(response);
+            
+            logger.debug("Generated response with {} characters", cleanedResponse.length());
+            return cleanedResponse;
             
         } catch (Exception e) {
             logger.error("Error generating chat response with context: {}", e.getMessage(), e);
@@ -194,12 +200,56 @@ public class ChatService {
             // Note: Custom options like temperature can be set in application.properties
             // or through model-specific configuration
             
-            logger.debug("Generated response with custom options, {} characters", response.length());
-            return response;
+            // Clean the response to remove thinking tags
+            String cleanedResponse = cleanThinkingTags(response);
+            
+            logger.debug("Generated response with custom options, {} characters", cleanedResponse.length());
+            return cleanedResponse;
             
         } catch (Exception e) {
             logger.error("Error generating chat response with custom options: {}", e.getMessage(), e);
             throw new RuntimeException("Failed to generate chat response with custom options", e);
         }
+    }
+    
+    /**
+     * Clean response text by removing thinking tags and content.
+     * This method removes <think>, <thinking>, or similar XML-style thinking tags
+     * that some AI models include in their responses.
+     */
+    private String cleanThinkingTags(String response) {
+        if (response == null || response.trim().isEmpty()) {
+            return response;
+        }
+        
+        // Remove <think>...</think> tags and their content
+        String cleaned = response.replaceAll("(?s)<think>.*?</think>", "");
+        
+        // Remove <thinking>...</thinking> tags and their content
+        cleaned = cleaned.replaceAll("(?s)<thinking>.*?</thinking>", "");
+        
+        // Remove any other common thinking-related XML tags
+        cleaned = cleaned.replaceAll("(?s)<thought>.*?</thought>", "");
+        cleaned = cleaned.replaceAll("(?s)<reasoning>.*?</reasoning>", "");
+        cleaned = cleaned.replaceAll("(?s)<analysis>.*?</analysis>", "");
+        
+        // Remove any standalone opening or closing tags that might be left
+        cleaned = cleaned.replaceAll("</?think>", "");
+        cleaned = cleaned.replaceAll("</?thinking>", "");
+        cleaned = cleaned.replaceAll("</?thought>", "");
+        cleaned = cleaned.replaceAll("</?reasoning>", "");
+        cleaned = cleaned.replaceAll("</?analysis>", "");
+        
+        // Clean up any extra whitespace that might be left
+        cleaned = cleaned.replaceAll("\\n\\s*\\n\\s*\\n", "\n\n");
+        cleaned = cleaned.trim();
+        
+        // Log if we removed thinking tags
+        if (!cleaned.equals(response)) {
+            logger.debug("Removed thinking tags from response. Original length: {}, Cleaned length: {}", 
+                        response.length(), cleaned.length());
+        }
+        
+        return cleaned;
     }
 }
