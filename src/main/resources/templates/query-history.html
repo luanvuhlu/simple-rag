@@ -27,6 +27,7 @@
             line-height: 1.6;
             color: #495057;
             font-family: system-ui, -apple-system, sans-serif;
+            white-space: pre-wrap; /* Preserve line breaks and spaces */
         }
         .answer-text h1, .answer-text h2, .answer-text h3, .answer-text h4, .answer-text h5, .answer-text h6 {
             margin-top: 1.5rem;
@@ -83,6 +84,48 @@
         .answer-text em {
             font-style: italic;
         }
+        .question-content {
+            line-height: 1.6;
+            font-family: system-ui, -apple-system, sans-serif;
+            white-space: pre-wrap; /* Preserve line breaks and spaces */
+        }
+        .question-content h1, .question-content h2, .question-content h3, .question-content h4, .question-content h5, .question-content h6 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+        .question-content h1 { font-size: 1.2rem; }
+        .question-content h2 { font-size: 1.1rem; }
+        .question-content h3 { font-size: 1.05rem; }
+        .question-content h4 { font-size: 1rem; }
+        .question-content h5 { font-size: 0.95rem; }
+        .question-content h6 { font-size: 0.9rem; }
+        .question-content p {
+            margin-bottom: 0.8rem;
+        }
+        .question-content ul, .question-content ol {
+            margin-bottom: 0.8rem;
+            padding-left: 1.2rem;
+        }
+        .question-content li {
+            margin-bottom: 0.2rem;
+        }
+        .question-content code {
+            background-color: #e9ecef;
+            padding: 0.1rem 0.2rem;
+            border-radius: 0.2rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.85em;
+            color: #d63384;
+        }
+        .question-content strong {
+            font-weight: 700;
+            color: #0d6efd;
+        }
+        .question-content em {
+            font-style: italic;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -138,7 +181,7 @@
                     <!-- Question -->
                     <div class="question-text">
                         <i class="fas fa-question-circle text-primary me-2"></i>
-                        <span th:text="${query.question}">Question text</span>
+                        <span class="question-content" th:attr="data-markdown=${query.question}">Question text</span>
                     </div>
 
                     <!-- Answer -->
@@ -201,17 +244,39 @@
 
         // Render Markdown content
         function renderMarkdown() {
-            const markdownElements = document.querySelectorAll('.answer-text[data-markdown]');
-            markdownElements.forEach(element => {
+            // Render answer markdown
+            const answerElements = document.querySelectorAll('.answer-text[data-markdown]');
+            answerElements.forEach(element => {
                 const markdownText = element.getAttribute('data-markdown');
                 if (markdownText) {
-                    element.innerHTML = marked.parse(markdownText);
+                    // Ensure line breaks are properly handled
+                    const processedText = markdownText.replace(/\\n/g, '\n');
+                    element.innerHTML = marked.parse(processedText);
+                }
+            });
+            
+            // Render question markdown
+            const questionElements = document.querySelectorAll('.question-content[data-markdown]');
+            questionElements.forEach(element => {
+                const markdownText = element.getAttribute('data-markdown');
+                if (markdownText) {
+                    // Ensure line breaks are properly handled
+                    const processedText = markdownText.replace(/\\n/g, '\n');
+                    element.innerHTML = marked.parse(processedText);
                 }
             });
         }
 
         // Render markdown on page load
         document.addEventListener('DOMContentLoaded', function() {
+            // Configure marked.js for better line break handling
+            marked.setOptions({
+                breaks: true,      // Convert \n in paragraphs into <br>
+                gfm: true,         // GitHub Flavored Markdown
+                sanitize: false,   // Allow HTML (be careful with user input)
+                smartypants: true  // Use smart quotes and dashes
+            });
+            
             renderMarkdown();
         });
     </script>

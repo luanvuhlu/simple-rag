@@ -46,11 +46,15 @@ public class RagQueryService {
         long startTime = System.currentTimeMillis();
         
         try {
-            // For now, return a simple response without vector search
-            // This will be enhanced when Spring AI is properly integrated
-            List<DocumentChunk> relevantChunks = findRelevantChunks(question);
+            // Analyze user question to determine search strategy
+            SearchAnalysis searchAnalysis = analyzeSearchIntent(question);
             
-            String answer = generateAnswer(question, relevantChunks);
+            List<DocumentChunk> relevantChunks = List.of();
+            if (searchAnalysis.needsDocumentSearch()) {
+                relevantChunks = findRelevantChunks(searchAnalysis.getSearchQuery());
+            }
+            
+            String answer = generateAnswer(question, relevantChunks, searchAnalysis);
             String relevantDocuments = getRelevantDocumentNames(relevantChunks);
             
             long processingTime = System.currentTimeMillis() - startTime;
@@ -75,9 +79,101 @@ public class RagQueryService {
     }
     
     /**
-     * Find relevant chunks for the query using vector similarity search.
+     * Analyze user question to determine search intent and strategy.
      */
-    private List<DocumentChunk> findRelevantChunks(String question) {
+    private SearchAnalysis analyzeSearchIntent(String question) {
+        try {
+            String analysisPrompt = String.format("""
+                Analyze this user question and determine the search strategy:
+                
+                Question: %s
+                
+                Determine:
+                1. Does this question need to search through uploaded documents? (yes/no)
+                2. If yes, what are the key search terms/concepts to find in documents?
+                3. What type of question is this? (document-specific, general-knowledge, mixed)
+                
+                Respond in this exact JSON format:
+                {
+                    "needs_document_search": true/false,
+                    "search_query": "key terms for document search (if needed)",
+                    "question_type": "document-specific|general-knowledge|mixed",
+                    "reasoning": "brief explanation of the analysis"
+                }
+                
+                Examples:
+                - "What is Python?" -> needs_document_search: false (general knowledge)
+                - "What does my contract say about termination?" -> needs_document_search: true, search_query: "contract termination"
+                - "Based on the financial report, what was the revenue?" -> needs_document_search: true, search_query: "financial report revenue"
+                """, question);
+            
+            String response = generateChatResponse(analysisPrompt);
+            return parseSearchAnalysis(response, question);
+            
+        } catch (Exception e) {
+            logger.warn("Failed to analyze search intent, using fallback: {}", e.getMessage());
+            // Fallback: assume document search is needed and extract simple keywords
+            return new SearchAnalysis(true, extractSimpleKeywords(question), "mixed", "Fallback analysis");
+        }
+    }
+    
+    /**
+     * Parse LLM response into SearchAnalysis object.
+     */
+    private SearchAnalysis parseSearchAnalysis(String response, String originalQuestion) {
+        try {
+            // Extract JSON from response
+            String jsonResponse = extractJsonFromResponse(response);
+            
+            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
+            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(jsonResponse);
+            
+            boolean needsSearch = root.path("needs_document_search").asBoolean(true);
+            String searchQuery = root.path("search_query").asText(extractSimpleKeywords(originalQuestion));
+            String questionType = root.path("question_type").asText("mixed");
+            String reasoning = root.path("reasoning").asText("AI analysis");
+            
+            logger.debug("Search analysis - Needs search: {}, Query: '{}', Type: {}", 
+                needsSearch, searchQuery, questionType);
+            
+            return new SearchAnalysis(needsSearch, searchQuery, questionType, reasoning);
+            
+        } catch (Exception e) {
+            logger.warn("Failed to parse search analysis, using fallback");
+            return new SearchAnalysis(true, extractSimpleKeywords(originalQuestion), "mixed", "Parse error fallback");
+        }
+    }
+    
+    /**
+     * Extract JSON content from LLM response.
+     */
+    private String extractJsonFromResponse(String response) {
+        int jsonStart = Math.max(response.indexOf('{'), response.indexOf('['));
+        int jsonEnd = Math.max(response.lastIndexOf('}'), response.lastIndexOf(']'));
+        
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            return response.substring(jsonStart, jsonEnd + 1);
+        }
+        
+        throw new RuntimeException("No valid JSON found in response: " + response);
+    }
+    
+    /**
+     * Simple keyword extraction fallback.
+     */
+    private String extractSimpleKeywords(String question) {
+        return question.toLowerCase()
+            .replaceAll("\\b(what|how|when|where|why|who|can|could|would|should|please|tell|show|explain|describe|based on|from the|in the|documents?|files?)\\b", "")
+            .replaceAll("\\b(the|a|and|or|but|in|on|at|to|for|of|with|by|is|are|was|were)\\b", "")
+            .replaceAll("[^a-zA-Z0-9\\s-]", " ")
+            .replaceAll("\\s+", " ")
+            .trim();
+    }
+
+    /**
+     * Find relevant chunks for the search query using vector similarity search.
+     */
+    private List<DocumentChunk> findRelevantChunks(String searchQuery) {
         try {
             // First check if we have any documents at all
             long totalChunks = documentChunkRepository.count();
@@ -92,8 +188,8 @@ public class RagQueryService {
             List<DocumentChunk> chunksWithoutEmbeddings = documentChunkRepository.findChunksWithoutEmbeddings();
             logger.info("Chunks without embeddings: {}", chunksWithoutEmbeddings.size());
             
-            // Generate embedding for the query
-            float[] queryEmbedding = embeddingProvider.generateEmbedding(question);
+            // Generate embedding for the search query
+            float[] queryEmbedding = embeddingProvider.generateEmbedding(searchQuery);
             String queryVector = convertEmbeddingToVector(queryEmbedding);
             
             // Use vector similarity search
@@ -130,14 +226,14 @@ public class RagQueryService {
             logger.warn("Failed to perform vector search, falling back to simple search: {}", e.getMessage());
             
             // Fallback to simple keyword search
-            return performSimpleKeywordSearch(question);
+            return performSimpleKeywordSearch(searchQuery);
         }
     }
     
     /**
      * Fallback simple keyword search when vector search fails.
      */
-    private List<DocumentChunk> performSimpleKeywordSearch(String question) {
+    private List<DocumentChunk> performSimpleKeywordSearch(String searchQuery) {
         List<DocumentChunk> allChunks = documentChunkRepository.findAll();
         
         if (allChunks.isEmpty()) {
@@ -145,7 +241,7 @@ public class RagQueryService {
         }
         
         // Simple keyword-based filtering
-        String[] keywords = question.toLowerCase().split("\\s+");
+        String[] keywords = searchQuery.toLowerCase().split("\\s+");
         
         return allChunks.stream()
                 .filter(chunk -> containsKeywords(chunk.getChunkText().toLowerCase(), keywords))
@@ -182,11 +278,45 @@ public class RagQueryService {
     }
     
     /**
-     * Generate answer based on question and relevant chunks using LLM.
+     * Generate answer based on question, relevant chunks, and search analysis using LLM.
      */
-    private String generateAnswer(String question, List<DocumentChunk> relevantChunks) {
+    private String generateAnswer(String question, List<DocumentChunk> relevantChunks, SearchAnalysis searchAnalysis) {
+        // Handle questions that don't need document search
+        if (!searchAnalysis.needsDocumentSearch()) {
+            String generalPrompt = String.format("""
+                Answer this general knowledge question:
+                
+                Question: %s
+                
+                Instructions:
+                - Provide a helpful and accurate answer
+                - This question doesn't require searching through specific documents
+                - Use your general knowledge to provide a comprehensive response
+                
+                Answer:""", question);
+            
+            try {
+                String answer = generateChatResponse(generalPrompt);
+                return answer != null && !answer.trim().isEmpty() ? answer.trim() : 
+                    "I can help with general questions, but I don't have enough information to answer this specific question.";
+            } catch (Exception e) {
+                logger.warn("Failed to generate general knowledge response: {}", e.getMessage());
+                return "I can help with general questions, but I encountered an error processing your question.";
+            }
+        }
+        
+        // Handle document-specific questions
         if (relevantChunks.isEmpty()) {
-            return "I couldn't find any relevant information in the uploaded documents to answer your question. Please make sure you have uploaded documents that contain information related to your query.";
+            return String.format("""
+                I searched for information about "%s" in the uploaded documents but couldn't find any relevant content.
+                
+                This could mean:
+                - The documents don't contain information about this topic
+                - Try rephrasing your question with different keywords
+                - Make sure you've uploaded documents that relate to your question
+                
+                You can also ask me general knowledge questions that don't require document search.""", 
+                searchAnalysis.getSearchQuery());
         }
         
         // Build context from relevant chunks
@@ -196,8 +326,8 @@ public class RagQueryService {
         }
         String context = contextBuilder.toString().trim();
         
-        // Create RAG prompt
-        String prompt = buildRagPrompt(question, context);
+        // Create enhanced RAG prompt with search context
+        String prompt = buildEnhancedRagPrompt(question, context, searchAnalysis);
         
         try {
             // Use Ollama to generate the answer
@@ -213,6 +343,38 @@ public class RagQueryService {
             logger.warn("Failed to generate LLM response, using fallback: {}", e.getMessage());
             return fallbackToSimpleAnswer(question, relevantChunks);
         }
+    }
+    
+    /**
+     * Build enhanced RAG prompt that considers search analysis.
+     */
+    private String buildEnhancedRagPrompt(String question, String context, SearchAnalysis searchAnalysis) {
+        return String.format("""
+            You are a helpful assistant that answers questions based on the provided context from uploaded documents.
+            
+            Search Analysis:
+            - Search terms used: %s
+            - Question type: %s
+            
+            Context from documents:
+            %s
+            
+            User Question: %s
+            
+            Instructions:
+            - Answer the question based primarily on the information provided in the context above
+            - The context was found by searching for: "%s"
+            - If the context doesn't fully answer the question, clearly state what information is available and what is missing
+            - Be specific and reference relevant parts of the context when possible
+            - If you need to make reasonable inferences, clearly indicate this
+            - Do not make up information that is not supported by the context
+            
+            Answer:""", 
+            searchAnalysis.getSearchQuery(),
+            searchAnalysis.getQuestionType(),
+            context, 
+            question,
+            searchAnalysis.getSearchQuery());
     }
     
     /**
@@ -387,5 +549,38 @@ public class RagQueryService {
         return allQueries.stream()
                 .limit(limit)
                 .collect(Collectors.toList());
+    }
+    
+    /**
+     * Search analysis result containing search intent and strategy.
+     */
+    private static class SearchAnalysis {
+        private final boolean needsDocumentSearch;
+        private final String searchQuery;
+        private final String questionType;
+        private final String reasoning;
+        
+        public SearchAnalysis(boolean needsDocumentSearch, String searchQuery, String questionType, String reasoning) {
+            this.needsDocumentSearch = needsDocumentSearch;
+            this.searchQuery = searchQuery;
+            this.questionType = questionType;
+            this.reasoning = reasoning;
+        }
+        
+        public boolean needsDocumentSearch() {
+            return needsDocumentSearch;
+        }
+        
+        public String getSearchQuery() {
+            return searchQuery;
+        }
+        
+        public String getQuestionType() {
+            return questionType;
+        }
+        
+        public String getReasoning() {
+            return reasoning;
+        }
     }
 }

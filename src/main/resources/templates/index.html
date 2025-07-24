@@ -67,6 +67,7 @@
         .answer-text {
             line-height: 1.6;
             font-family: system-ui, -apple-system, sans-serif;
+            white-space: pre-wrap; /* Preserve line breaks and spaces */
         }
         .answer-text h1, .answer-text h2, .answer-text h3, .answer-text h4, .answer-text h5, .answer-text h6 {
             margin-top: 1.5rem;
@@ -123,6 +124,74 @@
         .answer-text em {
             font-style: italic;
         }
+        .question-text {
+            line-height: 1.6;
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: #f8f9fa;
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid #0d6efd;
+            white-space: pre-wrap; /* Preserve line breaks and spaces */
+        }
+        .question-text h1, .question-text h2, .question-text h3, .question-text h4, .question-text h5, .question-text h6 {
+            margin-top: 1rem;
+            margin-bottom: 0.5rem;
+            color: #2c3e50;
+        }
+        .question-text h1 { font-size: 1.3rem; }
+        .question-text h2 { font-size: 1.2rem; }
+        .question-text h3 { font-size: 1.1rem; }
+        .question-text h4 { font-size: 1rem; }
+        .question-text h5 { font-size: 0.95rem; }
+        .question-text h6 { font-size: 0.9rem; }
+        .question-text p {
+            margin-bottom: 0.8rem;
+        }
+        .question-text ul, .question-text ol {
+            margin-bottom: 0.8rem;
+            padding-left: 1.2rem;
+        }
+        .question-text li {
+            margin-bottom: 0.2rem;
+        }
+        .question-text code {
+            background-color: #e9ecef;
+            padding: 0.1rem 0.2rem;
+            border-radius: 0.2rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.85em;
+            color: #d63384;
+        }
+        .question-text strong {
+            font-weight: 600;
+            color: #0d6efd;
+        }
+        .question-text em {
+            font-style: italic;
+            color: #6c757d;
+        }
+        .question-text-small {
+            line-height: 1.5;
+            font-family: system-ui, -apple-system, sans-serif;
+            font-weight: 600;
+            white-space: pre-wrap; /* Preserve line breaks and spaces */
+        }
+        .question-text-small code {
+            background-color: #f1f3f4;
+            padding: 0.1rem 0.15rem;
+            border-radius: 0.15rem;
+            font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+            font-size: 0.8em;
+            color: #d63384;
+        }
+        .question-text-small strong {
+            font-weight: 700;
+            color: #0d6efd;
+        }
+        .question-text-small em {
+            font-style: italic;
+            color: #6c757d;
+        }
     </style>
 </head>
 <body class="bg-light">
@@ -162,7 +231,7 @@
             </h5>
             <div class="mb-3">
                 <strong>Question:</strong>
-                <p class="mb-2" th:text="${queryResult.question}"></p>
+                <div class="mb-2 question-text" th:attr="data-markdown=${queryResult.question}"></div>
             </div>
             <div class="mb-3">
                 <strong>Answer:</strong>
@@ -291,7 +360,7 @@
                         </div>
                         <div th:each="query : ${recentQueries}" class="border-bottom pb-3 mb-3">
                             <div class="mb-2">
-                                <strong class="text-truncate d-block" th:text="${#strings.abbreviate(query.question, 80)}">Question</strong>
+                                <div class="question-text-small" th:attr="data-markdown=${#strings.abbreviate(query.question, 80)}"></div>
                                 <small class="text-muted" th:text="${#strings.abbreviate(query.answer, 120)}">Answer preview</small>
                             </div>
                             <small class="text-muted">
@@ -320,6 +389,14 @@
     <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
     <script>
         document.addEventListener('DOMContentLoaded', function() {
+            // Configure marked.js for better line break handling
+            marked.setOptions({
+                breaks: true,      // Convert \n in paragraphs into <br>
+                gfm: true,         // GitHub Flavored Markdown
+                sanitize: false,   // Allow HTML (be careful with user input)
+                smartypants: true  // Use smart quotes and dashes
+            });
+            
             const uploadArea = document.getElementById('uploadArea');
             const fileInput = document.getElementById('fileInput');
             const uploadForm = document.getElementById('uploadForm');
@@ -373,11 +450,38 @@
 
             // Render Markdown content
             function renderMarkdown() {
-                const markdownElements = document.querySelectorAll('.answer-text[data-markdown]');
-                markdownElements.forEach(element => {
+                // Render answer markdown
+                const answerElements = document.querySelectorAll('.answer-text[data-markdown]');
+                answerElements.forEach(element => {
                     const markdownText = element.getAttribute('data-markdown');
                     if (markdownText) {
-                        element.innerHTML = marked.parse(markdownText);
+                        // Ensure line breaks are properly handled
+                        const processedText = markdownText.replace(/\\n/g, '\n');
+                        element.innerHTML = marked.parse(processedText);
+                    }
+                });
+                
+                // Render question markdown
+                const questionElements = document.querySelectorAll('.question-text[data-markdown]');
+                questionElements.forEach(element => {
+                    const markdownText = element.getAttribute('data-markdown');
+                    if (markdownText) {
+                        // Ensure line breaks are properly handled
+                        const processedText = markdownText.replace(/\\n/g, '\n');
+                        element.innerHTML = marked.parse(processedText);
+                    }
+                });
+                
+                // Render small question markdown (for recent queries)
+                const questionSmallElements = document.querySelectorAll('.question-text-small[data-markdown]');
+                questionSmallElements.forEach(element => {
+                    const markdownText = element.getAttribute('data-markdown');
+                    if (markdownText) {
+                        // For small questions, use simpler markdown parsing (no block elements)
+                        // But still handle line breaks
+                        const processedText = markdownText.replace(/\\n/g, '\n');
+                        const parsed = marked.parseInline(processedText);
+                        element.innerHTML = parsed;
                     }
                 });
             }
