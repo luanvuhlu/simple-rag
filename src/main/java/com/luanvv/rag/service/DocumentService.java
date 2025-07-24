@@ -5,6 +5,9 @@ import com.luanvv.rag.entity.Document;
 import com.luanvv.rag.entity.DocumentChunk;
 import com.luanvv.rag.repository.DocumentRepository;
 import com.luanvv.rag.repository.DocumentChunkRepository;
+import org.apache.pdfbox.Loader;
+import org.apache.pdfbox.pdmodel.PDDocument;
+import org.apache.pdfbox.text.PDFTextStripper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -95,7 +98,7 @@ public class DocumentService {
         try {
             document.setStatus(Document.DocumentStatus.PROCESSING);
             documentRepository.save(document);
-            
+
             // Extract text
             Path filePath = Paths.get(document.getFilePath());
             String extractedText = textExtractionService.extractText(filePath, document.getContentType());
@@ -106,6 +109,7 @@ public class DocumentService {
                 documentRepository.save(document);
                 return;
             }
+            document.setExtractedText(extractedText);
             
             // Chunk text
             List<String> chunks = documentChunkingService.chunkText(extractedText);
@@ -156,7 +160,7 @@ public class DocumentService {
             throw new RuntimeException("Failed to process document: " + e.getMessage(), e);
         }
     }
-    
+
     /**
      * Process document asynchronously (placeholder for async processing).
      */

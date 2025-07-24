@@ -208,7 +208,7 @@ public class RagQueryService {
                 List<DocumentChunk> allChunksWithEmbeddings = documentChunkRepository.findAll()
                     .stream()
                     .filter(chunk -> chunk.getEmbeddingVector() != null)
-                    .collect(Collectors.toList());
+                    .toList();
                 
                 logger.info("Total chunks with embeddings: {}", allChunksWithEmbeddings.size());
                 
@@ -283,7 +283,60 @@ public class RagQueryService {
     private String generateAnswer(String question, List<DocumentChunk> relevantChunks, SearchAnalysis searchAnalysis) {
         // Handle questions that don't need document search
         if (!searchAnalysis.needsDocumentSearch()) {
-            String generalPrompt = String.format("""
+            return generateGeneralAnswer(question);
+        }
+        // Handle document-specific questions
+        if (relevantChunks.isEmpty()) {
+            logger.info("No relevant chunks found for search query: {}", searchAnalysis.getSearchQuery());
+            return generateAnswerFromWholeDocument(searchAnalysis);
+        }
+        return generateAnswerFromChunks(question, relevantChunks, searchAnalysis);
+
+    }
+
+    private String generateAnswerFromWholeDocument(SearchAnalysis searchAnalysis) {
+        return String.format("""
+                I searched for information about "%s" in the uploaded documents but couldn't find any relevant content.
+                
+                This could mean:
+                - The documents don't contain information about this topic
+                - Try rephrasing your question with different keywords
+                - Make sure you've uploaded documents that relate to your question
+                
+                You can also ask me general knowledge questions that don't require document search.""",
+            searchAnalysis.getSearchQuery());
+    }
+
+    private String generateAnswerFromChunks(String question, List<DocumentChunk> relevantChunks,
+        SearchAnalysis searchAnalysis) {
+        // Build context from relevant chunks
+        StringBuilder contextBuilder = new StringBuilder();
+        for (DocumentChunk chunk : relevantChunks) {
+            contextBuilder.append(chunk.getChunkText()).append("\n\n");
+        }
+        String context = contextBuilder.toString().trim();
+
+        // Create enhanced RAG prompt with search context
+        String prompt = buildEnhancedRagPrompt(question, context, searchAnalysis);
+
+        try {
+            // Use Ollama to generate the answer
+            String answer = generateChatResponse(prompt);
+
+            if (answer != null && !answer.trim().isEmpty()) {
+                return answer.trim();
+            } else {
+                return fallbackToSimpleAnswer(question, relevantChunks);
+            }
+
+        } catch (Exception e) {
+            logger.warn("Failed to generate LLM response, using fallback: {}", e.getMessage());
+            return fallbackToSimpleAnswer(question, relevantChunks);
+        }
+    }
+
+    private String generateGeneralAnswer(String question) {
+        String generalPrompt = String.format("""
                 Answer this general knowledge question:
                 
                 Question: %s
@@ -294,54 +347,14 @@ public class RagQueryService {
                 - Use your general knowledge to provide a comprehensive response
                 
                 Answer:""", question);
-            
-            try {
-                String answer = generateChatResponse(generalPrompt);
-                return answer != null && !answer.trim().isEmpty() ? answer.trim() : 
-                    "I can help with general questions, but I don't have enough information to answer this specific question.";
-            } catch (Exception e) {
-                logger.warn("Failed to generate general knowledge response: {}", e.getMessage());
-                return "I can help with general questions, but I encountered an error processing your question.";
-            }
-        }
-        
-        // Handle document-specific questions
-        if (relevantChunks.isEmpty()) {
-            return String.format("""
-                I searched for information about "%s" in the uploaded documents but couldn't find any relevant content.
-                
-                This could mean:
-                - The documents don't contain information about this topic
-                - Try rephrasing your question with different keywords
-                - Make sure you've uploaded documents that relate to your question
-                
-                You can also ask me general knowledge questions that don't require document search.""", 
-                searchAnalysis.getSearchQuery());
-        }
-        
-        // Build context from relevant chunks
-        StringBuilder contextBuilder = new StringBuilder();
-        for (DocumentChunk chunk : relevantChunks) {
-            contextBuilder.append(chunk.getChunkText()).append("\n\n");
-        }
-        String context = contextBuilder.toString().trim();
-        
-        // Create enhanced RAG prompt with search context
-        String prompt = buildEnhancedRagPrompt(question, context, searchAnalysis);
-        
+
         try {
-            // Use Ollama to generate the answer
-            String answer = generateChatResponse(prompt);
-            
-            if (answer != null && !answer.trim().isEmpty()) {
-                return answer.trim();
-            } else {
-                return fallbackToSimpleAnswer(question, relevantChunks);
-            }
-            
+            String answer = generateChatResponse(generalPrompt);
+            return answer != null && !answer.trim().isEmpty() ? answer.trim() :
+                "I can help with general questions, but I don't have enough information to answer this specific question.";
         } catch (Exception e) {
-            logger.warn("Failed to generate LLM response, using fallback: {}", e.getMessage());
-            return fallbackToSimpleAnswer(question, relevantChunks);
+            logger.warn("Failed to generate general knowledge response: {}", e.getMessage());
+            return "I can help with general questions, but I encountered an error processing your question.";
         }
     }
     

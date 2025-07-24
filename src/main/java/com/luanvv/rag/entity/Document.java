@@ -34,7 +34,10 @@ public class Document {
     @Enumerated(EnumType.STRING)
     @Column(nullable = false)
     private DocumentStatus status = DocumentStatus.UPLOADED;
-    
+
+    @Column(columnDefinition = "TEXT")
+    private String extractedText;
+
     @Column(name = "total_chunks")
     private Integer totalChunks = 0;
     
@@ -155,7 +158,15 @@ public class Document {
     public void setChunks(List<DocumentChunk> chunks) {
         this.chunks = chunks;
     }
-    
+
+    public String getExtractedText() {
+        return extractedText;
+    }
+
+    public void setExtractedText(String extractedText) {
+        this.extractedText = extractedText;
+    }
+
     /**
      * Enum representing the processing status of a document.
      */
