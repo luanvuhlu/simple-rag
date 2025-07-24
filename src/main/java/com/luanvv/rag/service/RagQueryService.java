@@ -1,9 +1,11 @@
 package com.luanvv.rag.service;
 
 import com.luanvv.rag.config.AppProperties;
+import com.luanvv.rag.entity.Document;
 import com.luanvv.rag.entity.DocumentChunk;
 import com.luanvv.rag.entity.QueryHistory;
 import com.luanvv.rag.repository.DocumentChunkRepository;
+import com.luanvv.rag.repository.DocumentRepository;
 import com.luanvv.rag.repository.QueryHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -11,7 +13,10 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Collections;
+import java.util.HashSet;
 import java.util.stream.Collectors;
+import com.fasterxml.jackson.annotation.JsonProperty;
 
 /**
  * Service for handling RAG queries and generating responses.
@@ -23,15 +28,18 @@ public class RagQueryService {
     private static final Logger logger = LoggerFactory.getLogger(RagQueryService.class);
     
     private final DocumentChunkRepository documentChunkRepository;
+    private final DocumentRepository documentRepository;
     private final QueryHistoryRepository queryHistoryRepository;
     private final EmbeddingProvider embeddingProvider;
     private final AppProperties appProperties;
     
     public RagQueryService(DocumentChunkRepository documentChunkRepository,
+                          DocumentRepository documentRepository,
                           QueryHistoryRepository queryHistoryRepository,
                           EmbeddingProvider embeddingProvider,
                           AppProperties appProperties) {
         this.documentChunkRepository = documentChunkRepository;
+        this.documentRepository = documentRepository;
         this.queryHistoryRepository = queryHistoryRepository;
         this.embeddingProvider = embeddingProvider;
         this.appProperties = appProperties;
@@ -46,21 +54,12 @@ public class RagQueryService {
         long startTime = System.currentTimeMillis();
         
         try {
-            // Analyze user question to determine search strategy
-            SearchAnalysis searchAnalysis = analyzeSearchIntent(question);
-            
-            List<DocumentChunk> relevantChunks = List.of();
-            if (searchAnalysis.needsDocumentSearch()) {
-                relevantChunks = findRelevantChunks(searchAnalysis.getSearchQuery());
-            }
-            
-            String answer = generateAnswer(question, relevantChunks, searchAnalysis);
-            String relevantDocuments = getRelevantDocumentNames(relevantChunks);
+            var queryResult = findResult(question);
             
             long processingTime = System.currentTimeMillis() - startTime;
-            
-            QueryHistory queryHistory = new QueryHistory(question, answer);
-            queryHistory.setRelevantDocuments(relevantDocuments);
+
+            QueryHistory queryHistory = new QueryHistory(question, queryResult.getAnswer());
+            queryHistory.setRelevantDocuments(queryResult.getRelevantDocuments());
             queryHistory.setProcessingTimeMs(processingTime);
             
             queryHistory = queryHistoryRepository.save(queryHistory);
@@ -77,6 +76,52 @@ public class RagQueryService {
             return queryHistoryRepository.save(errorQuery);
         }
     }
+
+    private QueryResult findResult(String question) {
+        // Analyze user question to determine search strategy
+            SearchAnalysis searchAnalysis = analyzeSearchIntent(question);
+            if (!searchAnalysis.getDocumentIds().isEmpty() || !searchAnalysis.getDocumentNames().isEmpty()) {
+                logger.info("Found specific documents in search analysis");
+                var documents = findReferencedDocument(searchAnalysis.getDocumentIds(), searchAnalysis.getDocumentNames());
+                if (!documents.isEmpty()) {
+                    var documentContent = documents.stream()
+                        .map(Document::getExtractedText)
+                        .collect(Collectors.toList());
+                    var answer = generateAnswerFromCompleteDocument(question, documentContent);
+                    String relevantDocuments = documents.stream()
+                        .map(Document::getFilename)
+                        .collect(Collectors.joining(", "));
+                    return new QueryResult(answer, relevantDocuments);
+                }
+
+            }
+            List<DocumentChunk> relevantChunks = List.of();
+            if (searchAnalysis.isNeedsDocumentSearch()) {
+                relevantChunks = findRelevantChunks(searchAnalysis.getSearchQuery());
+            }
+            
+            String answer = generateAnswer(question, relevantChunks, searchAnalysis);
+            String relevantDocuments = getRelevantDocumentNames(relevantChunks);
+            return new QueryResult(answer, relevantDocuments);
+    }
+
+    private static class QueryResult {
+        private final String answer;
+        private final String relevantDocuments;
+
+        public QueryResult(String answer, String relevantDocuments) {
+            this.answer = answer;
+            this.relevantDocuments = relevantDocuments;
+        }
+
+        public String getAnswer() {
+            return answer;
+        }
+
+        public String getRelevantDocuments() {
+            return relevantDocuments;
+        }
+    }
     
     /**
      * Analyze user question to determine search intent and strategy.
@@ -85,26 +130,50 @@ public class RagQueryService {
         try {
             String analysisPrompt = String.format("""
                 Analyze this user question and determine the search strategy:
-                
+
                 Question: %s
-                
-                Determine:
-                1. Does this question need to search through uploaded documents? (yes/no)
-                2. If yes, what are the key search terms/concepts to find in documents?
-                3. What type of question is this? (document-specific, general-knowledge, mixed)
-                
+
+                Carefully examine the question for:
+
+                **Document References:**
+                - Explicit document IDs (e.g., "document ID 12", "doc 5", "file #3")
+                - Document names/filenames (e.g., "resume.pdf", "contract.docx", "financial_report_2024.xlsx")
+                - Implicit document references (e.g., "the resume", "my contract", "the report I uploaded")
+                - Multiple document references (e.g., "compare documents 1 and 3", "all PDFs")
+
+                **Search Requirements:**
+                - Does the question require reading/analyzing uploaded documents?
+                - What specific information needs to be extracted from documents?
+                - Are there keywords that would help locate relevant content?
+
+                **Question Classification:**
+                - Document-specific: Requires specific uploaded documents
+                - General-knowledge: Can be answered without documents
+                - Mixed: Combines document analysis with general knowledge
+
+                **Instructions:**
+                1. Extract ALL document IDs mentioned (numbers only, as integers)
+                2. Extract ALL document names/filenames mentioned (exact strings)
+                3. For implicit references, leave arrays empty but set needs_document_search to true
+                4. Create comprehensive search terms including synonyms and related concepts
+                5. Be precise about question type classification
+
                 Respond in this exact JSON format:
                 {
                     "needs_document_search": true/false,
-                    "search_query": "key terms for document search (if needed)",
+                    "document_ids": [list of integers only, e.g., [1, 12, 5]],
+                    "document_names": ["exact filenames mentioned", "case-sensitive"],
+                    "search_query": "comprehensive keywords including synonyms and related terms",
                     "question_type": "document-specific|general-knowledge|mixed",
-                    "reasoning": "brief explanation of the analysis"
+                    "reasoning": "detailed explanation of document references found and why search is/isn't needed"
                 }
-                
-                Examples:
-                - "What is Python?" -> needs_document_search: false (general knowledge)
-                - "What does my contract say about termination?" -> needs_document_search: true, search_query: "contract termination"
-                - "Based on the financial report, what was the revenue?" -> needs_document_search: true, search_query: "financial report revenue"
+
+                **Examples:**
+                - "Analyze document ID 12 and Profile.pdf" → document_ids: [12], document_names: ["Profile.pdf"]
+                - "What does the resume say about experience?" → document_ids: [], document_names: [], but needs_document_search: true
+                - "Compare files 1, 3, and resume.docx" → document_ids: [1, 3], document_names: ["resume.docx"]
+                - "What is machine learning?" → needs_document_search: false
+                - "Based on the uploaded contract, what are the terms?" → document_ids: [], document_names: [], needs_document_search: true
                 """, question);
             
             String response = generateChatResponse(analysisPrompt);
@@ -112,8 +181,15 @@ public class RagQueryService {
             
         } catch (Exception e) {
             logger.warn("Failed to analyze search intent, using fallback: {}", e.getMessage());
-            // Fallback: assume document search is needed and extract simple keywords
-            return new SearchAnalysis(true, extractSimpleKeywords(question), "mixed", "Fallback analysis");
+            // Fallback: create a SearchAnalysis with fallback values
+            SearchAnalysis fallback = new SearchAnalysis();
+            fallback.setNeedsDocumentSearch(true);
+            fallback.setSearchQuery(extractSimpleKeywords(question));
+            fallback.setQuestionType("mixed");
+            fallback.setReasoning("Fallback analysis");
+            fallback.setDocumentIds(Collections.emptyList());
+            fallback.setDocumentNames(Collections.emptyList());
+            return fallback;
         }
     }
     
@@ -121,26 +197,40 @@ public class RagQueryService {
      * Parse LLM response into SearchAnalysis object.
      */
     private SearchAnalysis parseSearchAnalysis(String response, String originalQuestion) {
+        logger.debug("Parsing search analysis from response: {}", response);
         try {
             // Extract JSON from response
             String jsonResponse = extractJsonFromResponse(response);
             
             com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(jsonResponse);
             
-            boolean needsSearch = root.path("needs_document_search").asBoolean(true);
-            String searchQuery = root.path("search_query").asText(extractSimpleKeywords(originalQuestion));
-            String questionType = root.path("question_type").asText("mixed");
-            String reasoning = root.path("reasoning").asText("AI analysis");
+            // Deserialize JSON directly to DTO
+            SearchAnalysis dto = mapper.readValue(jsonResponse, SearchAnalysis.class);
             
-            logger.debug("Search analysis - Needs search: {}, Query: '{}', Type: {}", 
-                needsSearch, searchQuery, questionType);
-            
-            return new SearchAnalysis(needsSearch, searchQuery, questionType, reasoning);
-            
+            // Apply fallback values if needed
+            if (dto.getSearchQuery() == null || dto.getSearchQuery().trim().isEmpty()) {
+                dto.setSearchQuery(extractSimpleKeywords(originalQuestion));
+            }
+            if (dto.getQuestionType() == null || dto.getQuestionType().trim().isEmpty()) {
+                dto.setQuestionType("mixed");
+            }
+            if (dto.getReasoning() == null || dto.getReasoning().trim().isEmpty()) {
+                dto.setReasoning("AI analysis");
+            }
+
+            logger.debug("Search analysis: {}", dto);
+            return dto;
+
         } catch (Exception e) {
-            logger.warn("Failed to parse search analysis, using fallback");
-            return new SearchAnalysis(true, extractSimpleKeywords(originalQuestion), "mixed", "Parse error fallback");
+            logger.warn("Failed to parse search analysis JSON, using fallback: {}", e.getMessage());
+            SearchAnalysis fallback = new SearchAnalysis();
+            fallback.setNeedsDocumentSearch(true);
+            fallback.setSearchQuery(extractSimpleKeywords(originalQuestion));
+            fallback.setQuestionType("mixed");
+            fallback.setReasoning("Parse error fallback");
+            fallback.setDocumentIds(Collections.emptyList());
+            fallback.setDocumentNames(Collections.emptyList());
+            return fallback;
         }
     }
     
@@ -282,19 +372,20 @@ public class RagQueryService {
      */
     private String generateAnswer(String question, List<DocumentChunk> relevantChunks, SearchAnalysis searchAnalysis) {
         // Handle questions that don't need document search
-        if (!searchAnalysis.needsDocumentSearch()) {
+        if (!searchAnalysis.isNeedsDocumentSearch()) {
             return generateGeneralAnswer(question);
         }
         // Handle document-specific questions
         if (relevantChunks.isEmpty()) {
             logger.info("No relevant chunks found for search query: {}", searchAnalysis.getSearchQuery());
-            return generateAnswerFromWholeDocument(searchAnalysis);
+            return generateEmptyAnswer(question, searchAnalysis);
         }
         return generateAnswerFromChunks(question, relevantChunks, searchAnalysis);
 
     }
 
-    private String generateAnswerFromWholeDocument(SearchAnalysis searchAnalysis) {
+    private String generateEmptyAnswer(String originalQuestion, SearchAnalysis searchAnalysis) {
+        // If no specific document referenced, return the default "not found" message
         return String.format("""
                 I searched for information about "%s" in the uploaded documents but couldn't find any relevant content.
                 
@@ -303,8 +394,65 @@ public class RagQueryService {
                 - Try rephrasing your question with different keywords
                 - Make sure you've uploaded documents that relate to your question
                 
-                You can also ask me general knowledge questions that don't require document search.""",
+                You can also:
+                - Ask me general knowledge questions that don't require document search""",
             searchAnalysis.getSearchQuery());
+    }
+
+    /**
+     * Find a document referenced in the user's question by ID or filename.
+     */
+    private List<Document> findReferencedDocument(List<Integer> documentIds, List<String> documentNames) {
+        if (documentIds.isEmpty() && documentNames.isEmpty()) {
+            return List.of();
+        }
+
+        logger.info("Finding referenced documents by IDs: {} and names: {}", documentIds, documentNames);
+
+        // Find documents by IDs
+        List<Document> documents = documentRepository.getDocumentExtractedTextByIdsOrNames(new HashSet<>(documentIds), new HashSet<>(documentNames));
+        logger.info("Found {} documents", documents.size());
+        return documents;
+    }
+
+    /**
+     * Generate answer by analyzing the complete text content of a specific document.
+     */
+    private String generateAnswerFromCompleteDocument(String question, List<String> documents) {
+        if (documents.isEmpty()) {
+            return "I couldn't find any documents to analyze for your question. Please ensure you have uploaded documents.";
+        }
+        documents.forEach(document -> logger.info("Analyzing document: {}", document));
+
+        var documentContent = documents.stream()
+            .collect(Collectors.joining("\n\n---\n\n"));
+        // Create a prompt that includes the entire document content
+        String prompt = String.format("""
+            Based on the complete content of the multiple documents, please answer the following question:
+
+            QUESTION: %s
+            
+            COMPLETE DOCUMENT CONTENT:
+            %s
+            
+            INSTRUCTIONS:
+            - Provide a comprehensive answer based on the entire document content
+            - If the document doesn't contain information to answer the question, state this clearly
+            - Reference specific sections or parts of the document when relevant
+            - Be thorough but concise in your response
+            """, question, documentContent);
+
+        try {
+            // Call the LLM with the complete document context
+            String response = callOllamaChatAPI(prompt);
+            
+            // Add document metadata to the response
+            return response.trim();
+
+        } catch (Exception e) {
+            logger.error("Error analyzing complete documents", e);
+            return "I encountered an error while analyzing the complete documents. Please try again or rephrase your question.";
+        }
     }
 
     private String generateAnswerFromChunks(String question, List<DocumentChunk> relevantChunks,
@@ -391,31 +539,10 @@ public class RagQueryService {
     }
     
     /**
-     * Build RAG prompt for the LLM.
-     */
-    private String buildRagPrompt(String question, String context) {
-        return String.format("""
-            You are a helpful assistant that answers questions based on the provided context.
-            
-            Context:
-            %s
-            
-            Question: %s
-            
-            Instructions:
-            - Answer the question based only on the information provided in the context above
-            - If the context doesn't contain enough information to answer the question, say so clearly
-            - Be concise but comprehensive in your response
-            - Do not make up information that is not in the context
-            - If relevant, you can reference specific parts of the context
-            
-            Answer:""", context, question);
-    }
-    
-    /**
      * Generate chat response using Ollama.
      */
     private String generateChatResponse(String prompt) {
+        logger.debug("Generating chat response for prompt: {}", prompt);
         try {
             // Use the DirectOllamaEmbeddingService's HTTP client approach for chat
             return callOllamaChatAPI(prompt);
@@ -565,35 +692,44 @@ public class RagQueryService {
     }
     
     /**
-     * Search analysis result containing search intent and strategy.
+     * DTO class for parsing JSON response from LLM.
      */
     private static class SearchAnalysis {
-        private final boolean needsDocumentSearch;
-        private final String searchQuery;
-        private final String questionType;
-        private final String reasoning;
+        @JsonProperty("needs_document_search")
+        private boolean needsDocumentSearch;
         
-        public SearchAnalysis(boolean needsDocumentSearch, String searchQuery, String questionType, String reasoning) {
-            this.needsDocumentSearch = needsDocumentSearch;
-            this.searchQuery = searchQuery;
-            this.questionType = questionType;
-            this.reasoning = reasoning;
-        }
+        @JsonProperty("document_ids")
+        private List<Integer> documentIds = Collections.emptyList();
         
-        public boolean needsDocumentSearch() {
-            return needsDocumentSearch;
-        }
+        @JsonProperty("document_names") 
+        private List<String> documentNames = Collections.emptyList();
         
-        public String getSearchQuery() {
-            return searchQuery;
-        }
+        @JsonProperty("search_query")
+        private String searchQuery;
         
-        public String getQuestionType() {
-            return questionType;
-        }
+        @JsonProperty("question_type")
+        private String questionType;
         
-        public String getReasoning() {
-            return reasoning;
-        }
+        @JsonProperty("reasoning")
+        private String reasoning;
+        
+        // Default constructor for Jackson
+        public SearchAnalysis() {}
+        
+        // Getters
+        public boolean isNeedsDocumentSearch() { return needsDocumentSearch; }
+        public List<Integer> getDocumentIds() { return documentIds != null ? documentIds : Collections.emptyList(); }
+        public List<String> getDocumentNames() { return documentNames != null ? documentNames : Collections.emptyList(); }
+        public String getSearchQuery() { return searchQuery; }
+        public String getQuestionType() { return questionType; }
+        public String getReasoning() { return reasoning; }
+        
+        // Setters
+        public void setNeedsDocumentSearch(boolean needsDocumentSearch) { this.needsDocumentSearch = needsDocumentSearch; }
+        public void setDocumentIds(List<Integer> documentIds) { this.documentIds = documentIds; }
+        public void setDocumentNames(List<String> documentNames) { this.documentNames = documentNames; }
+        public void setSearchQuery(String searchQuery) { this.searchQuery = searchQuery; }
+        public void setQuestionType(String questionType) { this.questionType = questionType; }
+        public void setReasoning(String reasoning) { this.reasoning = reasoning; }
     }
 }

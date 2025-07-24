@@ -64,6 +64,12 @@ public class Document {
         this.fileSize = fileSize;
         this.contentType = contentType;
     }
+
+    public Document(Long id, String filename, String extractedText) {
+        this.id = id;
+        this.filename = filename;
+        this.extractedText = extractedText;
+    }
     
     @PreUpdate
     public void preUpdate() {

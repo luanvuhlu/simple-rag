@@ -329,7 +329,10 @@
                         <div th:each="document : ${documents}" th:if="${documentStat.index < 5}" class="document-card">
                             <div class="d-flex justify-content-between align-items-start">
                                 <div>
-                                    <h6 class="mb-1" th:text="${document.filename}">Document Name</h6>
+                                    <h6 class="mb-1">
+                                        <span class="badge bg-primary me-2" th:text="'ID: ' + ${document.id}">ID: 1</span>
+                                        <span th:text="${document.filename}">Document Name</span>
+                                    </h6>
                                     <small class="text-muted">
                                         <i class="fas fa-calendar me-1"></i>
                                         <span th:text="${#temporals.format(document.uploadDate, 'MMM dd, yyyy HH:mm')}"></span>

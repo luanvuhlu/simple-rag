@@ -7,6 +7,7 @@ import org.springframework.stereotype.Repository;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.Set;
 
 /**
  * Repository interface for Document entity operations.
@@ -45,4 +46,12 @@ public interface DocumentRepository extends JpaRepository<Document, Long> {
      */
     @Query("SELECT COALESCE(SUM(d.fileSize), 0) FROM Document d")
     long getTotalFileSize();
+
+    @Query("""
+        SELECT new com.luanvv.rag.entity.Document(d.id, d.filename, d.extractedText)
+            FROM Document d
+            WHERE d.extractedText IS NOT NULL
+            AND (d.id IN :documentIds OR d.filename IN :documentNames)
+    """)
+    List<Document> getDocumentExtractedTextByIdsOrNames(Set<Integer> documentIds, Set<String> documentNames);
 }

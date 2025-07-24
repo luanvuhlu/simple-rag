@@ -91,7 +91,10 @@
                                           document.contentType.contains('word') ? 'fa-file-word' : 'fa-file-alt')}"></i>
                         </div>
                         <div>
-                            <h5 class="mb-1" th:text="${document.filename}">Document Name</h5>
+                            <h5 class="mb-1">
+                                <span class="badge bg-primary me-2" th:text="'ID: ' + ${document.id}">ID: 1</span>
+                                <span th:text="${document.filename}">Document Name</span>
+                            </h5>
                             <div class="mb-2">
                                 <span class="badge status-badge me-2"
                                       th:class="${'badge status-badge me-2 ' + (document.status.name() == 'PROCESSED' ? 'bg-success' : 
