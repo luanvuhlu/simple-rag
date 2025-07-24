@@ -32,20 +32,20 @@ public class RagQueryService {
     private final QueryHistoryRepository queryHistoryRepository;
     private final EmbeddingProvider embeddingProvider;
     private final AppProperties appProperties;
-    private final SpringAiChatService springAiChatService;
+    private final ChatService chatService;
     
     public RagQueryService(DocumentChunkRepository documentChunkRepository,
                           DocumentRepository documentRepository,
                           QueryHistoryRepository queryHistoryRepository,
                           EmbeddingProvider embeddingProvider,
                           AppProperties appProperties,
-                          SpringAiChatService springAiChatService) {
+                          ChatService chatService) {
         this.documentChunkRepository = documentChunkRepository;
         this.documentRepository = documentRepository;
         this.queryHistoryRepository = queryHistoryRepository;
         this.embeddingProvider = embeddingProvider;
         this.appProperties = appProperties;
-        this.springAiChatService = springAiChatService;
+        this.chatService = chatService;
     }
     
     /**
@@ -547,7 +547,7 @@ public class RagQueryService {
     private String generateChatResponse(String prompt) {
         logger.debug("Generating chat response for prompt: {}", prompt);
         try {
-            return springAiChatService.generateResponse(prompt);
+            return chatService.generateResponse(prompt);
         } catch (Exception e) {
             logger.error("Error calling Spring AI chat service: {}", e.getMessage());
             throw e;

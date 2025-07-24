@@ -13,13 +13,13 @@ import java.util.ArrayList;
  * Spring AI implementation for Ollama embedding service.
  */
 @Service
-public class SpringAiOllamaEmbeddingService implements EmbeddingProvider {
+public class EmbeddingService implements EmbeddingProvider {
     
-    private static final Logger logger = LoggerFactory.getLogger(SpringAiOllamaEmbeddingService.class);
+    private static final Logger logger = LoggerFactory.getLogger(EmbeddingService.class);
     
     private final EmbeddingModel embeddingModel;
     
-    public SpringAiOllamaEmbeddingService(EmbeddingModel embeddingModel) {
+    public EmbeddingService(EmbeddingModel embeddingModel) {
         this.embeddingModel = embeddingModel;
     }
     

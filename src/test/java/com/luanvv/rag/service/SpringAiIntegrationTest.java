@@ -15,10 +15,10 @@ import static org.junit.jupiter.api.Assertions.*;
 public class SpringAiIntegrationTest {
     
     @Autowired(required = false)
-    private SpringAiOllamaEmbeddingService embeddingService;
+    private EmbeddingService embeddingService;
     
     @Autowired(required = false)
-    private SpringAiChatService chatService;
+    private ChatService chatService;
     
     @Test
     public void testEmbeddingServiceAvailable() {
