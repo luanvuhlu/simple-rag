@@ -179,29 +179,6 @@ The included `docker-compose.yml` provides a complete development environment:
 ```bash
 # Start all services
 docker-compose up -d
-
-# View logs
-docker-compose logs -f
-
-# Stop services
-docker-compose down
-
-# Reset database
-docker-compose down -v
-docker-compose up -d
-```
-
-### Manual Docker Commands
-
-```bash
-# Start PostgreSQL with pgvector
-docker run -d \
-  --name simple-rag-postgres \
-  -e POSTGRES_DB=simplerag \
-  -e POSTGRES_USER=raguser \
-  -e POSTGRES_PASSWORD=ragpassword \
-  -p 5432:5432 \
-  pgvector/pgvector:pg16
 ```
 
 ## 🔧 Development
@@ -216,8 +193,8 @@ When Spring AI becomes available, the application is ready for integration:
 ollama serve
 
 # Pull required models
-ollama pull qwen2.5:7b
-ollama pull nomic-embed-text
+ollama pull qwen3:8b
+ollama pull bge-m3
 ```
 
 2. The `EmbeddingService` and `RagQueryService` are prepared for Spring AI integration
