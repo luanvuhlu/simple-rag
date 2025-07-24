@@ -1,6 +1,8 @@
 package com.luanvv.rag.controller;
 
+import com.luanvv.rag.entity.ChatMessage;
 import com.luanvv.rag.entity.QueryHistory;
+import com.luanvv.rag.service.ChatService;
 import com.luanvv.rag.service.RagQueryService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,9 +25,11 @@ public class QueryController {
     private static final Logger logger = LoggerFactory.getLogger(QueryController.class);
     
     private final RagQueryService ragQueryService;
+    private final ChatService chatService;
     
-    public QueryController(RagQueryService ragQueryService) {
+    public QueryController(RagQueryService ragQueryService, ChatService chatService) {
         this.ragQueryService = ragQueryService;
+        this.chatService = chatService;
     }
     
     /**
@@ -115,6 +119,99 @@ public class QueryController {
             response.put("message", "Error loading query: " + e.getMessage());
             
             return ResponseEntity.status(500).body(response);
+        }
+    }
+    
+    /**
+     * Chat with memory endpoint - POST request for AJAX.
+     */
+    @PostMapping("/api/chat")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> chatWithMemory(
+            @RequestParam String prompt,
+            @RequestParam(required = false) String conversationId) {
+        
+        logger.debug("Chat request with memory - conversation: {}, prompt length: {}", 
+                    conversationId, prompt != null ? prompt.length() : 0);
+        
+        try {
+            String response = chatService.generateResponse(prompt, conversationId);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("response", response);
+            result.put("conversationId", conversationId);
+            
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            logger.error("Error in chat with memory", e);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", false);
+            result.put("message", "Error: " + e.getMessage());
+            
+            return ResponseEntity.status(500).body(result);
+        }
+    }
+    
+    /**
+     * Get conversation history.
+     */
+    @GetMapping("/api/conversation/{conversationId}")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> getConversationHistory(@PathVariable String conversationId) {
+        
+        logger.debug("Getting conversation history for: {}", conversationId);
+        
+        try {
+            List<ChatMessage> history = chatService.getConversationHistory(conversationId);
+            long messageCount = chatService.getConversationMessageCount(conversationId);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("history", history);
+            result.put("messageCount", messageCount);
+            
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            logger.error("Error getting conversation history", e);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", false);
+            result.put("message", "Error: " + e.getMessage());
+            
+            return ResponseEntity.status(500).body(result);
+        }
+    }
+    
+    /**
+     * Clear conversation memory.
+     */
+    @DeleteMapping("/api/conversation/{conversationId}")
+    @ResponseBody
+    public ResponseEntity<Map<String, Object>> clearConversation(@PathVariable String conversationId) {
+        
+        logger.debug("Clearing conversation: {}", conversationId);
+        
+        try {
+            chatService.clearConversationMemory(conversationId);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", true);
+            result.put("message", "Conversation cleared successfully");
+            
+            return ResponseEntity.ok(result);
+            
+        } catch (Exception e) {
+            logger.error("Error clearing conversation", e);
+            
+            Map<String, Object> result = new HashMap<>();
+            result.put("success", false);
+            result.put("message", "Error: " + e.getMessage());
+            
+            return ResponseEntity.status(500).body(result);
         }
     }
 }

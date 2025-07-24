@@ -11,5 +11,6 @@
     <include file="db/changelog/changes/004-create-indexes.sql"/>
     <include file="db/changelog/changes/005-increase-document-chunks.sql"/>
     <include file="db/changelog/changes/006-add-document-content.sql"/>
+    <include file="db/changelog/changes/007-create-chat-memory-table.sql"/>
 
 </databaseChangeLog>

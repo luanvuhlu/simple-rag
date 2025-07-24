@@ -9,6 +9,8 @@ import com.luanvv.rag.repository.DocumentRepository;
 import com.luanvv.rag.repository.QueryHistoryRepository;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.ai.converter.BeanOutputConverter;
+import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -161,15 +163,7 @@ public class RagQueryService {
                 4. Create comprehensive search terms including synonyms and related concepts
                 5. Be precise about question type classification
 
-                Respond in this exact JSON format:
-                {
-                    "needs_document_search": true/false,
-                    "document_ids": [list of integers only, e.g., [1, 12, 5]],
-                    "document_names": ["exact filenames mentioned", "case-sensitive"],
-                    "search_query": "comprehensive keywords including synonyms and related terms",
-                    "question_type": "document-specific|general-knowledge|mixed",
-                    "reasoning": "detailed explanation of document references found and why search is/isn't needed"
-                }
+                {format}
 
                 **Examples:**
                 - "Analyze document ID 12 and Profile.pdf" → document_ids: [12], document_names: ["Profile.pdf"]
@@ -178,10 +172,8 @@ public class RagQueryService {
                 - "What is machine learning?" → needs_document_search: false
                 - "Based on the uploaded contract, what are the terms?" → document_ids: [], document_names: [], needs_document_search: true
                 """, question);
-            
-            String response = generateChatResponse(analysisPrompt);
-            return parseSearchAnalysis(response, question);
-            
+            var converter = new BeanOutputConverter<>(SearchAnalysis.class);
+            return generateChatResponse(analysisPrompt, converter);
         } catch (Exception e) {
             logger.warn("Failed to analyze search intent, using fallback: {}", e.getMessage());
             // Fallback: create a SearchAnalysis with fallback values
@@ -194,61 +186,6 @@ public class RagQueryService {
             fallback.setDocumentNames(Collections.emptyList());
             return fallback;
         }
-    }
-    
-    /**
-     * Parse LLM response into SearchAnalysis object.
-     */
-    private SearchAnalysis parseSearchAnalysis(String response, String originalQuestion) {
-        logger.debug("Parsing search analysis from response: {}", response);
-        try {
-            // Extract JSON from response
-            String jsonResponse = extractJsonFromResponse(response);
-            
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            
-            // Deserialize JSON directly to DTO
-            SearchAnalysis dto = mapper.readValue(jsonResponse, SearchAnalysis.class);
-            
-            // Apply fallback values if needed
-            if (dto.getSearchQuery() == null || dto.getSearchQuery().trim().isEmpty()) {
-                dto.setSearchQuery(extractSimpleKeywords(originalQuestion));
-            }
-            if (dto.getQuestionType() == null || dto.getQuestionType().trim().isEmpty()) {
-                dto.setQuestionType("mixed");
-            }
-            if (dto.getReasoning() == null || dto.getReasoning().trim().isEmpty()) {
-                dto.setReasoning("AI analysis");
-            }
-
-            logger.debug("Search analysis: {}", dto);
-            return dto;
-
-        } catch (Exception e) {
-            logger.warn("Failed to parse search analysis JSON, using fallback: {}", e.getMessage());
-            SearchAnalysis fallback = new SearchAnalysis();
-            fallback.setNeedsDocumentSearch(true);
-            fallback.setSearchQuery(extractSimpleKeywords(originalQuestion));
-            fallback.setQuestionType("mixed");
-            fallback.setReasoning("Parse error fallback");
-            fallback.setDocumentIds(Collections.emptyList());
-            fallback.setDocumentNames(Collections.emptyList());
-            return fallback;
-        }
-    }
-    
-    /**
-     * Extract JSON content from LLM response.
-     */
-    private String extractJsonFromResponse(String response) {
-        int jsonStart = Math.max(response.indexOf('{'), response.indexOf('['));
-        int jsonEnd = Math.max(response.lastIndexOf('}'), response.lastIndexOf(']'));
-        
-        if (jsonStart >= 0 && jsonEnd > jsonStart) {
-            return response.substring(jsonStart, jsonEnd + 1);
-        }
-        
-        throw new RuntimeException("No valid JSON found in response: " + response);
     }
     
     /**
@@ -544,10 +481,19 @@ public class RagQueryService {
     /**
      * Generate chat response using Spring AI.
      */
-    private String generateChatResponse(String prompt) {
-        logger.debug("Generating chat response for prompt: {}", prompt);
+    private <T> T generateChatResponse(String prompt, BeanOutputConverter<T> converter) {
         try {
-            return chatService.generateResponse(prompt);
+            var response = chatService.generateResponse(prompt, converter.getFormat());
+            return converter.convert(response);
+        } catch (Exception e) {
+            logger.error("Error calling Spring AI chat service: {}", e.getMessage());
+            throw e;
+        }
+    }
+
+    private String generateChatResponse(String prompt) {
+        try {
+            return chatService.generateResponse(prompt, null);
         } catch (Exception e) {
             logger.error("Error calling Spring AI chat service: {}", e.getMessage());
             throw e;
