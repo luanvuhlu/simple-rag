@@ -41,15 +41,11 @@
             <artifactId>spring-boot-starter-validation</artifactId>
         </dependency>
         
-        <!-- Spring AI - Removed due to version incompatibilities -->
-        <!-- Using DirectOllamaEmbeddingService with direct HTTP calls instead -->
-        <!--
+        <!-- Spring AI -->
         <dependency>
             <groupId>org.springframework.ai</groupId>
             <artifactId>spring-ai-ollama-spring-boot-starter</artifactId>
-            <version>1.0.0-M6</version>
         </dependency>
-        -->
         
         <!-- Database -->
         <dependency>

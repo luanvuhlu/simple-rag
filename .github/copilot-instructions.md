@@ -89,3 +89,6 @@ When implementing new features, follow the established service boundary pattern 
 
 ## Git
 - Commit messages should be clear, descriptive, and not exceed 72 characters.
+
+## Others
+- No summary documentation needed

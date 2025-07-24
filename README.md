@@ -16,7 +16,6 @@ A complete RAG (Retrieval-Augmented Generation) application built with Spring Bo
 
 ## 🔮 Future Enhancements
 
-- **Spring AI Integration**: Currently using direct Ollama API calls. Future versions will migrate to use Spring AI framework for better integration, standardized interfaces, and enhanced functionality
 - **Multiple LLM Support**: Through Spring AI's unified API
 - **Advanced RAG Techniques**: Hybrid search, re-ranking, and context optimization
 - **Authentication & Authorization**: User management and secure access control
@@ -127,27 +126,6 @@ app.file.max-size=52428800
 app.document.chunk-size=1000
 app.document.chunk-overlap=200
 app.document.max-chunks-per-document=500
-```
-
-### Ollama Configuration (Current Implementation)
-
-```properties
-# Ollama settings (direct API integration)
-app.ollama.base-url=http://localhost:11434
-app.ollama.embedding.model=nomic-embed-text
-app.ollama.chat.model=qwen2.5:7b
-# Vector similarity search
-app.vector.similarity-threshold=0.3
-app.vector.max-results=10
-```
-
-**Note**: Future versions will migrate to Spring AI for Ollama integration:
-```properties
-# Future Spring AI configuration
-spring.ai.ollama.base-url=http://localhost:11434
-spring.ai.ollama.chat.options.model=qwen2.5:7b
-spring.ai.ollama.chat.options.temperature=0.7
-spring.ai.ollama.embedding.options.model=nomic-embed-text
 ```
 
 ## 🔌 API Endpoints

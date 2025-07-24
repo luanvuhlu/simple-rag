@@ -32,17 +32,20 @@ public class RagQueryService {
     private final QueryHistoryRepository queryHistoryRepository;
     private final EmbeddingProvider embeddingProvider;
     private final AppProperties appProperties;
+    private final SpringAiChatService springAiChatService;
     
     public RagQueryService(DocumentChunkRepository documentChunkRepository,
                           DocumentRepository documentRepository,
                           QueryHistoryRepository queryHistoryRepository,
                           EmbeddingProvider embeddingProvider,
-                          AppProperties appProperties) {
+                          AppProperties appProperties,
+                          SpringAiChatService springAiChatService) {
         this.documentChunkRepository = documentChunkRepository;
         this.documentRepository = documentRepository;
         this.queryHistoryRepository = queryHistoryRepository;
         this.embeddingProvider = embeddingProvider;
         this.appProperties = appProperties;
+        this.springAiChatService = springAiChatService;
     }
     
     /**
@@ -444,7 +447,7 @@ public class RagQueryService {
 
         try {
             // Call the LLM with the complete document context
-            String response = callOllamaChatAPI(prompt);
+            String response = generateChatResponse(prompt);
             
             // Add document metadata to the response
             return response.trim();
@@ -539,100 +542,18 @@ public class RagQueryService {
     }
     
     /**
-     * Generate chat response using Ollama.
+     * Generate chat response using Spring AI.
      */
     private String generateChatResponse(String prompt) {
         logger.debug("Generating chat response for prompt: {}", prompt);
         try {
-            // Use the DirectOllamaEmbeddingService's HTTP client approach for chat
-            return callOllamaChatAPI(prompt);
-            
+            return springAiChatService.generateResponse(prompt);
         } catch (Exception e) {
-            logger.error("Error calling Ollama chat API: {}", e.getMessage());
+            logger.error("Error calling Spring AI chat service: {}", e.getMessage());
             throw e;
         }
     }
     
-    /**
-     * Call Ollama chat API directly using HTTP.
-     */
-    private String callOllamaChatAPI(String prompt) {
-        try {
-            org.springframework.web.client.RestTemplate restTemplate = new org.springframework.web.client.RestTemplate();
-            org.springframework.http.HttpHeaders headers = new org.springframework.http.HttpHeaders();
-            headers.setContentType(org.springframework.http.MediaType.APPLICATION_JSON);
-            
-            // Get Ollama configuration
-            String baseUrl = getOllamaBaseUrl();
-            String model = getOllamaChatModel();
-            
-            // Build request
-            java.util.Map<String, Object> request = new java.util.HashMap<>();
-            request.put("model", model);
-            request.put("prompt", prompt);
-            request.put("stream", false);
-            request.put("options", java.util.Map.of(
-                "temperature", 0.7,
-                "top_p", 0.9,
-                "top_k", 40
-            ));
-            
-            org.springframework.http.HttpEntity<java.util.Map<String, Object>> entity = 
-                new org.springframework.http.HttpEntity<>(request, headers);
-            
-            // Make request
-            String url = baseUrl + "/api/generate";
-            logger.debug("Calling Ollama chat API: {}", url);
-            
-            org.springframework.http.ResponseEntity<String> response = restTemplate.postForEntity(url, entity, String.class);
-            
-            if (response.getStatusCode().is2xxSuccessful() && response.getBody() != null) {
-                return extractResponseFromOllama(response.getBody());
-            } else {
-                throw new RuntimeException("Failed to get response from Ollama: " + response.getStatusCode());
-            }
-            
-        } catch (Exception e) {
-            logger.error("Error calling Ollama chat API: {}", e.getMessage());
-            throw new RuntimeException("Failed to generate response", e);
-        }
-    }
-    
-    /**
-     * Extract response text from Ollama JSON response.
-     */
-    private String extractResponseFromOllama(String jsonResponse) {
-        try {
-            com.fasterxml.jackson.databind.ObjectMapper mapper = new com.fasterxml.jackson.databind.ObjectMapper();
-            com.fasterxml.jackson.databind.JsonNode root = mapper.readTree(jsonResponse);
-            
-            if (root.has("response")) {
-                return root.get("response").asText();
-            } else {
-                throw new RuntimeException("No 'response' field in Ollama response");
-            }
-            
-        } catch (Exception e) {
-            logger.error("Error parsing Ollama response: {}", e.getMessage());
-            throw new RuntimeException("Failed to parse Ollama response", e);
-        }
-    }
-    
-    /**
-     * Get Ollama base URL from configuration.
-     */
-    private String getOllamaBaseUrl() {
-        // Default to localhost if not configured
-        return "http://localhost:11434";
-    }
-    
-    /**
-     * Get Ollama chat model from configuration.
-     */
-    private String getOllamaChatModel() {
-        // Default to qwen2.5:7b if not configured
-        return "qwen2.5:7b";
-    }
     
     /**
      * Fallback to simple answer when LLM fails.
